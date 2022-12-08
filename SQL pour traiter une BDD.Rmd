@@ -1,0 +1,240 @@
+---
+title: "Traiement d'une base de données avec SQL sous R"
+author: "Célia Zaidi"
+date: "11/19/2022"
+output: word_document
+   word_document : 
+   toc : true 
+   toc_depth : 2
+   toc_float : true 
+   theme : journal 
+---
+
+Ici, notre objectif est de rendre compte des commandes utiles à connaitre 
+lorsque nous appréhendons une base de données, alors profitons-en pour parler
+d'actualité. 
+
+Nous allons analyser une base de données traitant des caractéristiques des 
+joueurs de football de la dernière coupe du monde de 2018. 
+
+Ici nous commençons par charger les packages nécessaires et importer notre base
+de données.
+```{r}
+
+library(sqldf)
+library("readr")
+
+players <- read.csv(
+  "https://raw.githubusercontent.com/ArthurData/data/main/players.csv",
+  na = ""  
+)
+```
+
+Nous allons nous poser quelques questions... 
+
+------ PARTIE 1 ------
+
+1/ Afficher les joueurs ayant un id entre 200 et 300 et dont le nom se termine 
+par un “n”.
+
+2/ Afficher les joueurs évoluant dans les équipes suivantes : Real Madrid, 
+Barcelona et Arsenal et dont la position n’est pas renseignée.
+
+3/ Afficher le capitaine qui posséde le plus de sélections.
+
+4/ Afficher les capitaines avec plus de 100 sélections ou les numéros 10 avec 
+plus de 50 sélections.
+
+```{r}
+
+#1
+sqldf("SELECT name, id FROM players 
+      WHERE name LIKE '%n' 
+      AND id BETWEEN 200 AND 300")
+
+#2
+sqldf("SELECT name, club, position FROM players
+       WHERE position IS NULL
+       AND club='Real Madrid' OR 'Barcelona' OR 'Arsenal'")
+
+#ou alors 
+
+sqldf("SELECT *
+       FROM players
+       WHERE club IN ('Real Madrid', 'Barcelona', 'Arsenal') 
+        AND position IS NULL")
+
+#3 
+sqldf("SELECT name, captain, played FROM players
+       ORDER BY played DESC
+       LIMIT 1")
+
+#4
+sqldf("SELECT captain, number, played FROM players
+      WHERE captain = 1 AND played > 100 
+        OR number = 10 AND played > 50")
+```
+
+
+
+
+
+------ PARTIE 2 ------
+
+Parmi les clubs suivants :
+  Real Madrid, Barcelona, Arsenal, Chelsea, Liverpool, Juventus
+ 
+
+Quel est le club qui a le plus de joueurs qui ont participé à la 
+Coupe du Monde ? 
+Calculer également le nombre de sélections moyen des joueurs appartenant 
+à ces clubs. Trier du plus grand effectif au plus petit effectif.
+
+```{r}
+sqldf("SELECT club, 
+COUNT(id) AS tot_selections, 
+AVG(played) AS nbr_select_moy 
+FROM players  
+WHERE club IN('Real Madrid','Barcelona', 
+      'Arsenal', 'Chelsea', 'Liverpool', 'Juventus')
+      GROUP BY CLUB
+      ORDER BY tot_selections DESC")
+```
+
+1/ Quel est le nombre de joueurs par position ? Filtrer les positions 
+ayant plus de 100 joueurs
+
+2/ Qui est le milieu de terrain né entre 1994-01-01 et 1994-03-31 et qui possède
+plus de 3 sélections ?
+
+3/ Quels sont les clubs ayant uniquement 1 joueur représenté à cette compétition
+et dont le nom du club commence par un “S” ?
+
+```{r}
+#1/
+sqldf("SELECT position, 
+COUNT(position) AS nbr_joueurs 
+FROM players
+GROUP BY position
+HAVING COUNT(*) >100")
+
+#2/
+
+sqldf("SELECT name, position, birth_date 
+       FROM players
+       WHERE position = 'Milieu' 
+       AND birth_date BETWEEN '1994-01-01' AND '1994-03-31'
+       AND played > 3")
+
+#3/
+
+sqldf("SELECT club, COUNT(*) AS effectif 
+       FROM players 
+       WHERE club LIKE 'S%'
+       GROUP BY club 
+       HAVING COUNT(*) = 1")
+```
+
+Créer une colonne nommée captain_exp qui contient : capitaine expérimenté si le
+joueur est capitaine avec 40 ou + sélections ; jeune capitaine si le joueur est 
+capitaine avec moins de 40 sélections. Idem avec les non capitaines : jeune 
+joueur et joueur expérimenté.
+
+```{r}
+sqldf("SELECT *, 
+         CASE 
+           WHEN played > 40 AND captain = 1 THEN 'capitaine expérimenté' 
+           WHEN played < 40 AND captain = 1 THEN 'jeune capitaine' 
+           WHEN played > 40 AND captain = 0 THEN 'joueur expérimenté' 
+           ELSE 'jeune joueur' 
+          END AS captain_exp
+          FROM players")
+```
+
+
+------ PARTIE 3 ------
+
+Requêter une BDD.
+
+Le package DBI = DataBase Interface.
+
+C’est le package qui gère la relation entre R et notre SGBD.
+
+Il permet notamment d’interroger nos bases.
+
+conn = db, c'est la connection à ma BDD,
+
+Pour les petites requêtes on fait dbGetQuery mais pour les un peu plus 
+grosses il vaut mieux faire un dbSendQuery  + dbFetch
+
+```{r}
+library(DBI)
+
+#Créons une base SQLite, dont le nom sera : MyBase
+
+db <- dbConnect(RSQLite::SQLite(), dbname="MyBase")
+
+```
+
+----- PARTIE 4 -------
+
+Pour créer une table SQL, il faut utiliser la commande CREATE TABLE.
+
+La syntaxe est la suivante :
+
+```{r}
+#Création d’une table
+dbSendQuery(conn = db,
+  "CREATE TABLE etudiants
+    (
+      id INTEGER PRIMARY KEY NOT NULL,
+      name VARCHAR(20),
+      naiss DATE
+    )")
+
+# Completer une table
+
+dbSendQuery(conn = db, 
+"INSERT INTO etudiants 
+  VALUES 
+    (1, 'Camille', '1990-08-13'),
+    (2, 'Andréa', '1989-05-31'),
+    (3, 'Lucile', '1990-03-20')")
+
+dbSendQuery(conn = db, 
+"INSERT INTO etudiants (naiss, id, name)
+  VALUES 
+    ('1990-08-13', 4, 'Louise'),
+    ('1989-05-31', 6, 'Damien'),
+    ('1990-03-20', 5, 'Nadia')")
+
+#modifier une table 
+
+dbSendQuery(conn = db, 
+"ALTER TABLE etudiants 
+  ADD sexe VARCHAR(1)
+")
+```
+
+La commande update pour mettre à jour  les données dans la nouvelle colonne, ici
+nous ajoutons le sexe de quatre individus. 
+
+```{r}
+#hommes 
+dbSendQuery(conn = db, 
+" UPDATE etudiants
+  SET sexe = 'H'
+  WHERE name = 'Damien'")
+
+#femmes
+dbSendQuery(conn = db, 
+"UPDATE etudiants
+SET sexe = 'F'
+WHERE name IN ('Lucile', 'Louise', 'Nadia')")
+```
+
+----- PARTIE 5 -------
+
+Ici, nous n'éprouvons pas le besoin de produire des jointures de tables mais
+il est tout à fait possible de le faire grâce aux opérateurs inner join, left 
+join... 
